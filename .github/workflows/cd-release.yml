@@ -95,7 +95,6 @@ jobs:
     needs: [lint, test]
     permissions:
       contents: read
-      packages: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -103,18 +102,17 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to GitHub Container Registry
+      - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.DOCKER_USER }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Extract metadata for Docker
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository }}
+          images: maclarensg/ipam2
           tags: |
             type=sha
             type=ref,event=tag
@@ -142,5 +140,5 @@ jobs:
       - name: Success notification
         run: |
           echo "✅ Release ${{ github.event.release.tag_name }} completed successfully!"
-          echo "- Binary uploaded"
-          echo "- Docker image pushed to ghcr.io/${{ github.repository }}"
+          echo "- Binary uploaded to GitHub Releases"
+          echo "- Docker image pushed to Docker Hub (maclarensg/ipam2)"

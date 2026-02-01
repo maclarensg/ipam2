@@ -3,8 +3,11 @@ FROM python:3.14-slim
 
 # Labels
 LABEL maintainer="Gavin Yap <maclarensg@gmail.com>"
-LABEL description="Enterprise IP Address Management CLI"
+LABEL description="Enterprise IP Address Management CLI - Hierarchical IP allocation"
 LABEL version="2.0"
+LABEL org.opencontainers.image.source="https://github.com/maclarensg/ipam2"
+LABEL org.opencontainers.image.title="ipam2"
+LABEL org.opencontainers.image.description="Enterprise IP Address Management CLI with Hierarchical Allocation"
 
 # Install dependencies
 COPY requirements.txt /tmp/requirements.txt

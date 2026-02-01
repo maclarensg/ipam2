@@ -3,10 +3,11 @@ SQLAlchemy ORM Models for IPAM
 Using name as unique identifier (no UUIDs)
 """
 
-from sqlalchemy import Column, String, Integer, ForeignKey, Text, UniqueConstraint
+import ipaddress
+
+from sqlalchemy import Column, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
-import ipaddress
 
 Base = declarative_base()
 

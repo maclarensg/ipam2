@@ -3,9 +3,8 @@ IP Allocator - Best-Fit with Overlap Prevention
 Handles hierarchical: AddressPool -> Pool -> Subnet
 """
 
-import ipaddress
-from typing import List, Optional, Tuple
 import bisect
+import ipaddress
 
 
 class IPAllocator:
@@ -14,7 +13,7 @@ class IPAllocator:
     def __init__(self, parent_cidr: str):
         self.parent_cidr = parent_cidr
         self.parent_network = ipaddress.IPv4Network(parent_cidr, strict=False)
-        self.used_ranges: List[Tuple[int, int]] = []
+        self.used_ranges: list[tuple[int, int]] = []
 
     def _ip_to_int(self, ip: str) -> int:
         return int(ipaddress.IPv4Address(ip))
@@ -22,7 +21,7 @@ class IPAllocator:
     def _int_to_ip(self, ip_int: int) -> str:
         return str(ipaddress.IPv4Address(ip_int))
 
-    def _network_range(self, cidr: str) -> Tuple[int, int]:
+    def _network_range(self, cidr: str) -> tuple[int, int]:
         """Get (start, end) integer range for a CIDR"""
         network = ipaddress.IPv4Network(cidr, strict=False)
         return (
@@ -61,7 +60,7 @@ class IPAllocator:
                 return False
         return True
 
-    def find_best_fit(self, prefix_length: int) -> Optional[str]:
+    def find_best_fit(self, prefix_length: int) -> str | None:
         """
         Find the best-fit CIDR for the given prefix length.
         Allocates from the center of the largest available gap.
@@ -70,7 +69,7 @@ class IPAllocator:
         parent_start = self._ip_to_int(str(self.parent_network.network_address))
         parent_end = self._ip_to_int(str(self.parent_network.broadcast_address))
 
-        gaps: List[Tuple[int, int, float]] = []
+        gaps: list[tuple[int, int, float]] = []
 
         # If no used ranges, entire parent is available
         if not self.used_ranges:

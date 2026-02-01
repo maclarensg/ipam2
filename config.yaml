@@ -1,0 +1,4 @@
+database:
+  driver: sqlite  # sqlite or postgresql
+  sqlite_url: "sqlite:///ipam.db"
+  # postgres_url: "postgresql://postgres:password@localhost:5432/ipam"

@@ -1,0 +1,137 @@
+# Taskfile for IPAM2 - Enterprise IP Address Management
+# Install task: https://taskfile.dev/installation/
+
+version: '3'
+
+vars:
+  NAME: ipam2
+  DIST_DIR: dist
+  BUILD_DIR: build
+  VENV: .venv
+
+tasks:
+  # ============ INSTALL ============
+
+  install:
+    desc: Install Python dependencies
+    cmds:
+      - |
+        if [ ! -d "{{.VENV}}" ]; then
+          python3 -m venv {{.VENV}}
+        fi
+        .venv/bin/pip install -r requirements.txt
+        .venv/bin/pip install pyinstaller>=6.14.0
+
+  install-dev:
+    desc: Install development dependencies
+    cmds:
+      - .venv/bin/pip install ruff black mypy
+
+  # ============ RUN ============
+
+  run:
+    desc: Run IPAM2 CLI
+    cmds:
+      - /bin/bash -c '.venv/bin/activate && python3 ipam2.py --help'
+
+  # ============ TEST ============
+
+  test:
+    desc: Run IPAM2 with test data and show report
+    cmds:
+      - |
+        rm -f ipam.db 2>/dev/null
+        .venv/bin/python3 ipam2.py addresspool create prod-net 10.0/16
+        .venv.0.0/bin/python3 ipam2.py addresspool create stag-net 10.1.0.0/16
+        .venv/bin/python3 ipam2.py vpc create Project1
+        .venv/bin/python3 ipam2.py vpc create Project2
+        .venv/bin/python3 ipam2.py pool create prd-pool prod-net Project1 --prefix 24
+        .venv/bin/python3 ipam2.py pool create nonprd-pool stag-net Project1 --prefix 24
+        .venv/bin/python3 ipam2.py pool create prd-pool-p2 prod-net Project2 --prefix 24
+        .venv/bin/python3 ipam2.py pool create nonprd-pool-p2 stag-net Project2 --prefix 24
+        .venv/bin/python3 ipam2.py subnet create p1-prd-api prd-pool Project1 --prefix 28
+        .venv/bin/python3 ipam2.py subnet create p1-prd-web prd-pool Project1 --prefix 28
+        .venv/bin/python3 ipam2.py subnet create p1-sit-api nonprd-pool Project1 --prefix 28
+        .venv/bin/python3 ipam2.py subnet create p1-sit-web nonprd-pool Project1 --prefix 28
+        .venv/bin/python3 ipam2.py subnet create p1-uat-api nonprd-pool Project1 --prefix 28
+        .venv/bin/python3 ipam2.py subnet create p1-uat-web nonprd-pool Project1 --prefix 28
+        .venv/bin/python3 ipam2.py subnet create p2-prd-api prd-pool-p2 Project2 --prefix 28
+        .venv/bin/python3 ipam2.py subnet create p2-prd-web prd-pool-p2 Project2 --prefix 28
+        .venv/bin/python3 ipam2.py subnet create p2-sit-api nonprd-pool-p2 Project2 --prefix 28
+        .venv/bin/python3 ipam2.py subnet create p2-sit-web nonprd-pool-p2 Project2 --prefix 28
+        .venv/bin/python3 ipam2.py subnet create p2-uat-api nonprd-pool-p2 Project2 --prefix 28
+        .venv/bin/python3 ipam2.py subnet create p2-uat-web nonprd-pool-p2 Project2 --prefix 28
+        .venv/bin/python3 ipam2.py report tui
+
+  # ============ BUILD ============
+
+  build:
+    desc: Build standalone executable
+    cmds:
+      - rm -rf {{.DIST_DIR}} {{.BUILD_DIR}}
+      - .venv/bin/pyinstaller build.py
+
+  build-clean:
+    desc: Clean build artifacts
+    cmds:
+      - rm -rf {{.DIST_DIR}} {{.BUILD_DIR}} *.spec
+      - rm -rf __pycache__ */__pycache__ *.pyc
+
+  # ============ CLEANUP ============
+
+  clean:
+    desc: Clean all generated files
+    cmds:
+      - rm -f ipam.db ipam_*.db
+      - task build-clean
+
+  reset:
+    desc: Clean everything including database
+    cmds:
+      - task clean
+      - rm -rf {{.VENV}}
+
+  # ============ DATABASE ============
+
+  db-migrate:
+    desc: Recreate database schema
+    cmds:
+      - |
+        rm -f ipam.db
+        .venv/bin/python3 -c "from models import Base, engine; Base.metadata.create_all(engine); print('Database schema created')"
+
+  db-backup:
+    desc: Create database backup
+    cmds:
+      - .venv/bin/python3 ipam2.py backup create
+
+  # ============ DEV ============
+
+  lint:
+    desc: Run linter
+    cmds:
+      - .venv/bin/ruff check ipam2.py models.py allocator.py
+
+  format:
+    desc: Format code
+    cmds:
+      - .venv/bin/black ipam2.py models.py allocator.py
+
+  # ============ INFO ============
+
+  info:
+    desc: Show project info
+    cmds:
+      - echo "IPAM2 - Enterprise IP Address Management"
+      - ls -la *.py *.yaml *.txt 2>/dev/null || true
+      - .venv/bin/python3 --version
+      - ls -lh {{.DIST_DIR}}/{{.NAME}} 2>/dev/null || true
+      - |
+        if [ ! -f {{.DIST_DIR}}/{{.NAME}} ]; then
+          echo "Not built yet. Run: task build"
+        fi
+
+  help:
+    desc: Show this help
+    cmds:
+      - task --list-all

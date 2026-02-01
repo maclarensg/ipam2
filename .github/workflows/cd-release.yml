@@ -108,13 +108,13 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ipam2-binary
-          path: dist/
+          path: dist
           retention-days: 30
 
       - name: Create release asset
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*
+          files: dist/ipam2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

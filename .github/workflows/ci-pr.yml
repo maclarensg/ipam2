@@ -24,7 +24,7 @@ jobs:
           pip install ruff black
 
       - name: Run linter (ruff)
-        run: ruff check ipam2.py models.py allocator.py
+        run: ruff check --config ruff.toml ipam2.py models.py allocator.py
 
       - name: Run formatter check (black)
         run: black --check ipam2.py models.py allocator.py

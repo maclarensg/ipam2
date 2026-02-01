@@ -6,20 +6,22 @@
 - Overlap prevention with proper allocator
 """
 
-import click
-import yaml
-import sqlalchemy
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.exc import IntegrityError
-from models import Base, AddressPool, Vpc, Pool, Subnet
-from allocator import AddressPoolAllocator, PoolAllocator
-from datetime import datetime
-import shutil
 import ipaddress
-from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
+import shutil
+from datetime import datetime
+
+import click
+import sqlalchemy
+import yaml
 from rich import box
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import sessionmaker
+
+from allocator import AddressPoolAllocator, PoolAllocator
+from models import AddressPool, Base, Pool, Subnet, Vpc
 
 console = Console()
 db = None
@@ -83,7 +85,7 @@ class IPAMDatabase:
 
             return allocator
 
-    def allocate_pool(self, addr_pool_name: str, prefix_length: int) -> Optional[str]:
+    def allocate_pool(self, addr_pool_name: str, prefix_length: int) -> str | None:
         """Allocate a new pool from an address pool"""
         allocator = self.get_addr_pool_allocator(addr_pool_name)
         if not allocator:
@@ -92,7 +94,7 @@ class IPAMDatabase:
         cidr = allocator.find_best_fit(prefix_length)
         return cidr
 
-    def allocate_subnet(self, pool_name: str, prefix_length: int) -> Optional[str]:
+    def allocate_subnet(self, pool_name: str, prefix_length: int) -> str | None:
         """Allocate a new subnet from a pool"""
         allocator = self.get_pool_allocator(pool_name)
         if not allocator:
@@ -160,7 +162,7 @@ def create(name, cidr):
     try:
         network = ipaddress.IPv4Network(cidr, strict=False)
         if network.prefixlen > 16:
-            click.echo(f"❌ CIDR prefix must be /16 or smaller (e.g., /8, /12, /16)")
+            click.echo("❌ CIDR prefix must be /16 or smaller (e.g., /8, /12, /16)")
             return
     except ValueError as e:
         click.echo(f"❌ Invalid CIDR: {e}")
@@ -290,7 +292,7 @@ def create(name, address_pool_name, vpc_name, prefix):
     """Create a new pool within an address pool and VPC"""
     # Validate prefix
     if prefix < 22 or prefix > 30:
-        click.echo(f"❌ Pool prefix must be /22-/30")
+        click.echo("❌ Pool prefix must be /22-/30")
         return
 
     with db.session() as session:
@@ -388,7 +390,7 @@ def create(name, pool_name, vpc_name, prefix):
     """Create a new subnet within a pool and VPC"""
     # Validate prefix
     if prefix < 24 or prefix > 32:
-        click.echo(f"❌ Subnet prefix must be /24-/32")
+        click.echo("❌ Subnet prefix must be /24-/32")
         return
 
     with db.session() as session:
@@ -534,9 +536,9 @@ def tui():
                     pool_connector = "       " if is_last_pool else "   │   "
 
                     console.print(f"{pool_prefix} 📦 {p.name} ({p.cidr})")
-                    console.print(
-                        f"{pool_connector}    Used: {used_ips}/{pool_size} IPs {pool_bar} {util_percent:.1f}%"
-                    )
+                    util_str = f"{util_percent:.1f}%"
+                    used_msg = f"Used: {used_ips}/{pool_size} IPs {pool_bar} {util_str}"
+                    console.print(f"{pool_connector} {used_msg}")
 
                     # Show subnets in this pool
                     for j, s in enumerate(subnets):

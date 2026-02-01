@@ -94,12 +94,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pyinstaller
+          echo "=== PyInstaller version ==="
+          pyinstaller --version
 
       - name: Build binary
         run: |
           rm -rf dist build
           pyinstaller build.py
-          ls -la dist/
+          echo "=== Contents of dist/ ==="
+          find dist -type f -name "*ipam2*" 2>/dev/null || echo "No ipam2 files in dist/"
+          echo "=== Contents of current dir ==="
+          ls -la | head -20
+          echo "=== Check for standalone binary ==="
+          find . -maxdepth 2 -name "ipam2" -type f 2>/dev/null || echo "No standalone ipam2 binary found"
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4

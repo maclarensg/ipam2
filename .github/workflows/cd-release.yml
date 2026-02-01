@@ -101,24 +101,20 @@ jobs:
         run: |
           rm -rf dist build
           pyinstaller build.py
-          echo "=== All files in dist/ (recursive) ==="
-          find dist -ls 2>/dev/null || echo "dist/ is empty or doesn't exist"
-          echo "=== dist/ directory structure ==="
-          ls -laR dist/ 2>/dev/null || echo "dist/ not found"
-          echo "=== Looking for any executable files ==="
-          find . -type f -executable -name "*ipam*" 2>/dev/null | head -10
+          echo "=== All files in dist/ ==="
+          find dist -type f -ls
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
         with:
           name: ipam2-binary
-          path: dist/ipam2
+          path: dist/
           retention-days: 30
 
       - name: Create release asset
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/ipam2
+          files: dist/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

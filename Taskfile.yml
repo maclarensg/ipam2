@@ -8,6 +8,9 @@ vars:
   DIST_DIR: dist
   BUILD_DIR: build
   VENV: .venv
+  REGISTRY: ghcr.io
+  IMAGE: maclarensg/ipam2
+  DOCKER_FILE: Dockerfile
 
 tasks:
   # ============ INSTALL ============
@@ -41,8 +44,8 @@ tasks:
     cmds:
       - |
         rm -f ipam.db 2>/dev/null
-        .venv/bin/python3 ipam2.py addresspool create prod-net 10.0/16
-        .venv.0.0/bin/python3 ipam2.py addresspool create stag-net 10.1.0.0/16
+        .venv/bin/python3 ipam2.py addresspool create prod-net 10.0.0.0/16
+        .venv/bin/python3 ipam2.py addresspool create stag-net 10.1.0.0/16
         .venv/bin/python3 ipam2.py vpc create Project1
         .venv/bin/python3 ipam2.py vpc create Project2
         .venv/bin/python3 ipam2.py pool create prd-pool prod-net Project1 --prefix 24
@@ -76,6 +79,57 @@ tasks:
     cmds:
       - rm -rf {{.DIST_DIR}} {{.BUILD_DIR}} *.spec
       - rm -rf __pycache__ */__pycache__ *.pyc
+
+  # ============ DOCKER ============
+
+  docker-login:
+    desc: Login to GitHub Container Registry
+    cmds:
+      - echo "$GITHUB_TOKEN" | docker login {{.REGISTRY}} -u "$GITHUB_USER" --password-stdin
+
+  docker-build:
+    desc: Build Docker image
+    cmds:
+      - |
+        docker build -t {{.IMAGE}}:latest -t {{.IMAGE}}:{{.TAG | default "latest"}} {{.DOCKER_FILE}}
+
+  docker-push:
+    desc: Push Docker image to registry
+    cmds:
+      - |
+        if [ -z "$TAG" ]; then
+          echo "TAG not set. Use: task docker-push TAG=v2.0.0"
+          exit 1
+        fi
+        docker tag {{.IMAGE}}:latest {{.IMAGE}}:$TAG
+        docker push {{.IMAGE}}:$TAG
+        docker push {{.IMAGE}}:latest
+
+  docker-release:
+    desc: Build and push Docker release
+    cmds:
+      - task: docker-build
+      - task: docker-push
+    vars:
+      TAG: "{{.TAG}}"
+
+  docker-clean:
+    desc: Clean Docker images
+    cmds:
+      - docker rmi {{.IMAGE}}:latest {{.IMAGE}}:$TAG 2>/dev/null || true
+
+  # ============ RELEASE ============
+
+  release:
+    desc: Build binary and Docker for release
+    cmds:
+      - |
+        if [ -z "$TAG" ]; then
+          echo "TAG not set. Use: task release TAG=v2.0.0"
+          exit 1
+        fi
+        task build
+        task docker-release TAG=$TAG
 
   # ============ CLEANUP ============
 
@@ -123,12 +177,12 @@ tasks:
     desc: Show project info
     cmds:
       - echo "IPAM2 - Enterprise IP Address Management"
-      - ls -la *.py *.yaml *.txt 2>/dev/null || true
+      - ls -la *.py *.yaml *.txt *.Dockerfile 2>/dev/null || true
       - .venv/bin/python3 --version
       - ls -lh {{.DIST_DIR}}/{{.NAME}} 2>/dev/null || true
       - |
         if [ ! -f {{.DIST_DIR}}/{{.NAME}} ]; then
-          echo "Not built yet. Run: task build"
+          echo "Binary not built. Run: task build"
         fi
 
   help:

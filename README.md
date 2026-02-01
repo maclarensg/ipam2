@@ -5,8 +5,7 @@
 **🏢 Enterprise IP Address Management CLI with Hierarchical Allocation**
 
 [![CI](https://github.com/maclarensg/ipam2/actions/workflows/ci-pr.yml/badge.svg)](https://github.com/maclarensg/ipam2/actions)
-[![Release](https://github.com/maclarensg/ipam2/actions/workflows/cd-release.yml/badge.svg)](https://github.com/maclarensg/ipam2/releases)
-[![Docker](https://img.shields.io/badge/docker-ghcr.io%2Fmaclarensg%2Fipam2-blue)](https://github.com/maclarensg/ipam2/pkgs/container/ipam2)
+[![Docker](https://img.shields.io/badge/docker-maclarensg%2Fipam2-blue)](https://hub.docker.com/r/maclarensg/ipam2)
 
 </div>
 
@@ -15,7 +14,7 @@
 - **🏛️ Hierarchical Structure**: AddressPool → VPC → Pool → Subnet
 - **✅ Non-overlapping Allocation**: Automatic best-fit allocation prevents CIDR conflicts
 - **📊 Rich Reports**: Visual utilization reports with progress bars
-- **🐳 Container Ready**: Dockerfile and GitHub Container Registry support
+- **🐳 Container Ready**: Dockerfile and Docker Hub support
 - **📦 Standalone Binary**: Build self-contained executable with PyInstaller
 - **🔄 Multiple Databases**: SQLite (default) and PostgreSQL support
 - **🔧 Task Automation**: Taskfile for common operations
@@ -48,13 +47,13 @@ pip install -r requirements.txt
 
 ```bash
 # Pull image
-docker pull ghcr.io/maclarensg/ipam2:latest
+docker pull maclarensg/ipam2:latest
 
 # Run
-docker run --rm ghcr.io/maclarensg/ipam2:latest --help
+docker run --rm maclarensg/ipam2:latest --help
 
 # With data persistence
-docker run -v $(pwd)/data:/data --rm ghcr.io/maclarensg/ipam2:latest report tui
+docker run -v $(pwd)/data:/data --rm maclarensg/ipam2:latest report tui
 ```
 
 ### Using Standalone Binary
@@ -220,7 +219,7 @@ Triggered on `v*` tags:
 1. Runs lint + tests
 2. Builds standalone binary
 3. Builds Docker image
-4. Pushes to GitHub Container Registry
+4. Pushes to Docker Hub
 5. Creates GitHub release with binary
 
 ## Contributing

@@ -100,9 +100,11 @@ jobs:
       - name: Build binary
         run: |
           rm -rf dist build
-          pyinstaller build.py
+          pyinstaller build.spec
           echo "=== All files in dist/ ==="
-          find dist -type f -ls
+          ls -la dist/
+          echo "=== Binary location ==="
+          ls -la dist/ipam2 2>/dev/null || echo "dist/ipam2 not found"
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4

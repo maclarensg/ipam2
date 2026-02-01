@@ -101,12 +101,12 @@ jobs:
         run: |
           rm -rf dist build
           pyinstaller build.py
-          echo "=== Contents of dist/ ==="
-          find dist -type f -name "*ipam2*" 2>/dev/null || echo "No ipam2 files in dist/"
-          echo "=== Contents of current dir ==="
-          ls -la | head -20
-          echo "=== Check for standalone binary ==="
-          find . -maxdepth 2 -name "ipam2" -type f 2>/dev/null || echo "No standalone ipam2 binary found"
+          echo "=== All files in dist/ (recursive) ==="
+          find dist -ls 2>/dev/null || echo "dist/ is empty or doesn't exist"
+          echo "=== dist/ directory structure ==="
+          ls -laR dist/ 2>/dev/null || echo "dist/ not found"
+          echo "=== Looking for any executable files ==="
+          find . -type f -executable -name "*ipam*" 2>/dev/null | head -10
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4

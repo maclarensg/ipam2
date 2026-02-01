@@ -1,0 +1,252 @@
+# IPAM2 - Enterprise IP Address Management
+
+<div align="center">
+
+**🏢 Enterprise IP Address Management CLI with Hierarchical Allocation**
+
+[![CI](https://github.com/maclarensg/ipam2/actions/workflows/ci-pr.yml/badge.svg)](https://github.com/maclarensg/ipam2/actions)
+[![Release](https://github.com/maclarensg/ipam2/actions/workflows/cd-release.yml/badge.svg)](https://github.com/maclarensg/ipam2/releases)
+[![Docker](https://img.shields.io/badge/docker-ghcr.io%2Fmaclarensg%2Fipam2-blue)](https://github.com/maclarensg/ipam2/pkgs/container/ipam2)
+
+</div>
+
+## Features
+
+- **🏛️ Hierarchical Structure**: AddressPool → VPC → Pool → Subnet
+- **✅ Non-overlapping Allocation**: Automatic best-fit allocation prevents CIDR conflicts
+- **📊 Rich Reports**: Visual utilization reports with progress bars
+- **🐳 Container Ready**: Dockerfile and GitHub Container Registry support
+- **📦 Standalone Binary**: Build self-contained executable with PyInstaller
+- **🔄 Multiple Databases**: SQLite (default) and PostgreSQL support
+- **🔧 Task Automation**: Taskfile for common operations
+
+## Quick Start
+
+### Using Python
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Create address pool
+./ipam2.py addresspool create main 10.0.0.0/16
+
+# Create VPC
+./ipam2.py vpc create production
+
+# Create pool
+./ipam2.py pool create web main production --prefix 24
+
+# Create subnet
+./ipam2.py subnet create frontend web production --prefix 27
+
+# Show report
+./ipam2.py report tui
+```
+
+### Using Docker
+
+```bash
+# Pull image
+docker pull ghcr.io/maclarensg/ipam2:latest
+
+# Run
+docker run --rm ghcr.io/maclarensg/ipam2:latest --help
+
+# With data persistence
+docker run -v $(pwd)/data:/data --rm ghcr.io/maclarensg/ipam2:latest report tui
+```
+
+### Using Standalone Binary
+
+```bash
+# Download from releases
+chmod +x ipam2
+./ipam2.py --help
+```
+
+## Installation
+
+### Prerequisites
+
+- Python 3.14+
+- SQLite or PostgreSQL
+
+### Clone and Install
+
+```bash
+git clone git@github.com:maclarensg/ipam2.git
+cd ipam2
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Optional: Build standalone binary
+task build
+
+# Optional: Build Docker image
+task docker-build TAG=latest
+```
+
+## Usage
+
+### Command Reference
+
+| Command | Description |
+|---------|-------------|
+| `./ipam2.py addresspool create <name> <cidr>` | Create address pool (/8-/16) |
+| `./ipam2.py vpc create <name>` | Create VPC |
+| `./ipam2.py pool create <name> <addr_pool> <vpc> [--prefix]` | Create pool (/22-/30) |
+| `./ipam2.py subnet create <name> <pool> <vpc> [--prefix]` | Create subnet (/24-/32) |
+| `./ipam2.py addresspool list` | List address pools |
+| `./ipam2.py vpc list` | List VPCs |
+| `./ipam2.py pool list` | List pools |
+| `./ipam2.py subnet list` | List subnets |
+| `./ipam2.py report tui` | Show utilization report |
+| `./ipam2.py backup create` | Create database backup |
+
+### Example: Multi-Project Setup
+
+```bash
+# Create address pools
+./ipam2.py addresspool create prod-net 10.0.0.0/16
+./ipam2.py addresspool create stag-net 10.1.0.0/16
+
+# Create VPCs
+./ipam2.py vpc create Project1
+./ipam2.py vpc create Project2
+
+# Create pools (PRD from prod-net, NON-PRD from stag-net)
+./ipam2.py pool create prd-pool prod-net Project1 --prefix 24
+./ipam2.py pool create nonprd-pool stag-net Project1 --prefix 24
+./ipam2.py pool create prd-pool-p2 prod-net Project2 --prefix 24
+./ipam2.py pool create nonprd-pool-p2 stag-net Project2 --prefix 24
+
+# Create subnets
+./ipam2.py subnet create p1-prd-api prd-pool Project1 --prefix 28
+./ipam2.py subnet create p1-sit-api nonprd-pool Project1 --prefix 28
+./ipam2.py subnet create p1-uat-api nonprd-pool Project1 --prefix 28
+
+# Show report
+./ipam2.py report tui
+```
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    AddressPool: prod-net (10.0.0.0/16)      │
+│                         Utilization: 0.8%                    │
+├─────────────────────────────────────────────────────────────┤
+│  VPC: Project1                                               │
+│  └── prd-pool (10.0.128.0/24) - 18.8% used                  │
+│      ├── p1-prd-api (10.0.128.128/28)                       │
+│      ├── p1-prd-web (10.0.128.192/28)                       │
+│      └── p1-prd-db (10.0.128.160/28)                        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Hierarchy
+
+| Level | Prefix Range | Example |
+|-------|--------------|---------|
+| AddressPool | /8 - /16 | 10.0.0.0/16 |
+| Pool | /22 - /30 | 10.0.128.0/24 |
+| Subnet | /24 - /32 | 10.0.128.128/28 |
+
+## Configuration
+
+Edit `config.yaml` to change database:
+
+```yaml
+database:
+  driver: sqlite  # sqlite or postgresql
+  sqlite_url: "sqlite:///ipam.db"
+  # postgres_url: "postgresql://user:password@localhost:5432/ipam"
+```
+
+## Task Automation
+
+```bash
+# Install dependencies
+task install
+
+# Run tests
+task test
+
+# Build binary
+task build
+
+# Build and push Docker
+task docker-login
+task docker-release TAG=v2.0.0
+
+# Full release
+task release TAG=v2.0.0
+
+# Show help
+task help
+```
+
+## Development
+
+```bash
+# Install dev dependencies
+task install-dev
+
+# Run linter
+task lint
+
+# Format code
+task format
+
+# Clean up
+task reset
+```
+
+## CI/CD
+
+### Pull Requests
+
+- Linting (ruff + black)
+- Functional tests
+- Security scanning (bandit + safety)
+- Docker build verification
+
+### Releases
+
+Triggered on `v*` tags:
+
+1. Runs lint + tests
+2. Builds standalone binary
+3. Builds Docker image
+4. Pushes to GitHub Container Registry
+5. Creates GitHub release with binary
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make changes
+4. Run tests: `task test`
+5. Submit PR
+
+## Security
+
+For security vulnerabilities, please contact directly.
+
+## License
+
+MIT License - see LICENSE file for details.
+
+## Author
+
+**Gavin Yap** - [maclarensg@gmail.com](mailto:maclarensg@gmail.com)
+
+---
+
+<div align="center">
+
+**IPAM2** - Enterprise IP Address Management Made Simple
+
+</div>

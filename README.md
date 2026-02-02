@@ -18,6 +18,7 @@
 - **📦 Standalone Binary**: Build self-contained executable with PyInstaller
 - **🔄 Multiple Databases**: SQLite (default) and PostgreSQL support
 - **🔧 Task Automation**: Taskfile for common operations
+- **🎯 Flexible CIDR**: Any prefix length (/0-/32) with hierarchy enforcement
 
 ## Quick Start
 
@@ -59,10 +60,16 @@ docker run -v $(pwd)/data:/data --rm maclarensg/ipam2:latest report tui
 ### Using Standalone Binary
 
 ```bash
-# Download from releases
-chmod +x ipam2
-./ipam2.py --help
+# Download from releases (versioned binary)
+chmod +x ipam2-v1.0.0
+./ipam2-v1.0.0 --help
+
+# Or rename to ipam2 for convenience
+mv ipam2-v1.0.0 ipam2
+./ipam2 --help
 ```
+
+**Binary Naming**: Releases include versioned binaries (e.g., `ipam2-v1.0.0`, `ipam2-v2.1.3`)
 
 ## Installation
 
@@ -93,10 +100,10 @@ task docker-build TAG=latest
 
 | Command | Description |
 |---------|-------------|
-| `./ipam2.py addresspool create <name> <cidr>` | Create address pool (/8-/16) |
+| `./ipam2.py addresspool create <name> <cidr>` | Create address pool (/0-/32) |
 | `./ipam2.py vpc create <name>` | Create VPC |
-| `./ipam2.py pool create <name> <addr_pool> <vpc> [--prefix]` | Create pool (/22-/30) |
-| `./ipam2.py subnet create <name> <pool> <vpc> [--prefix]` | Create subnet (/24-/32) |
+| `./ipam2.py pool create <name> <addr_pool> <vpc> [--prefix]` | Create pool (/0-/32, smaller than AddressPool) |
+| `./ipam2.py subnet create <name> <pool> <vpc> [--prefix]` | Create subnet (/0-/32, smaller than Pool) |
 | `./ipam2.py addresspool list` | List address pools |
 | `./ipam2.py vpc list` | List VPCs |
 | `./ipam2.py pool list` | List pools |
@@ -147,13 +154,36 @@ task docker-build TAG=latest
 
 ### Hierarchy
 
-| Level | Prefix Range | Example |
-|-------|--------------|---------|
-| AddressPool | /8 - /16 | 10.0.0.0/16 |
-| Pool | /22 - /30 | 10.0.128.0/24 |
-| Subnet | /24 - /32 | 10.0.128.128/28 |
+| Level | Constraint | Example |
+|-------|------------|---------|
+| AddressPool | /0 - /32 | 10.0.0.0/16 |
+| Pool | /0 - /32, must be smaller than AddressPool | 10.0.128.0/24 |
+| Subnet | /0 - /32, must be smaller than Pool | 10.0.128.128/28 |
+
+**Note**: A smaller prefix means a larger network (e.g., /16 is smaller than /24). Pool/Subnet prefix length must be **greater than** parent prefix length.
 
 ## Configuration
+
+### Standalone Binary (Recommended)
+
+For the standalone binary, config and database are stored in XDG standard location:
+
+```bash
+# Config file
+~/.config/ipam2/config.yaml
+
+# SQLite database
+~/.config/ipam2/ipam.db
+```
+
+The config file is automatically created with defaults on first run.
+
+### Python Script
+
+For Python script usage, config is loaded from:
+
+1. `./config.yaml` (legacy, current directory)
+2. `~/.config/ipam2/config.yaml` (XDG standard)
 
 Edit `config.yaml` to change database:
 
@@ -163,6 +193,10 @@ database:
   sqlite_url: "sqlite:///ipam.db"
   # postgres_url: "postgresql://user:password@localhost:5432/ipam"
 ```
+
+### Environment Variables
+
+- `XDG_CONFIG_HOME`: Override default config directory (default: `~/.config`)
 
 ## Task Automation
 

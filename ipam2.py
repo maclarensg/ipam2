@@ -677,8 +677,7 @@ def backup():
 def create():
     """Create a timestamped backup"""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_file = f"ipam_{timestamp}.db"
-
+    
     # Find the actual database file from config
     if hasattr(db, 'config'):
         db_url = db.config.get("sqlite_url") or db.config.get("postgres_url")
@@ -697,25 +696,24 @@ def create():
         db_url = config.get("sqlite_url") or config.get("postgres_url")
 
     if db_url.startswith("sqlite:///"):
+        backup_file = f"ipam_{timestamp}.db"
         db_file = db_url.replace("sqlite:///", "")
         if db_file and db_file != ":memory:" and os.path.exists(db_file):
             shutil.copy(db_file, backup_file)
-            click.echo(f"✅ Backup: {backup_file}")
+            click.echo(f"✅ Backup: {backup_file} (SQLite)")
             return
 
-    # For PostgreSQL, create SQL dump
+    # For PostgreSQL, create SQL dump with proper extension
     if db_url.startswith("postgresql://"):
+        backup_file = f"ipam_{timestamp}.dump"
         try:
             import subprocess
-            # Extract connection params from URL
-            # postgresql://user:password@host:port/dbname
             import re
             match = re.match(r'postgresql://([^:]+):([^@]+)@([^:]+):?(\d*)/(.+)', db_url)
             if match:
                 user, password, host, port, dbname = match.groups()
                 port = port or '5432'
                 
-                # Set PGPASSWORD and run pg_dump
                 env = os.environ.copy()
                 env['PGPASSWORD'] = password
                 
@@ -726,8 +724,8 @@ def create():
                     '-U', user,
                     '-d', dbname,
                     '-f', backup_file,
-                    '-Fc',  # Custom format for compression
-                    '-v'    # Verbose
+                    '-Fc',
+                    '-v'
                 ]
                 
                 result = subprocess.run(cmd, env=env, capture_output=True, text=True)

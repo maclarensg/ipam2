@@ -346,10 +346,14 @@ def pool():
 
 
 @pool.command()
-@click.argument("name")
+@click.option(
+    "--prefix",
+    "-p",
+    default=24,
+    help="CIDR prefix (/0-/32, must be smaller than AddressPool)",
+)
 @click.argument("address_pool_name")
 @click.argument("vpc_name")
-@click.option("--prefix", "-p", default=24, help="CIDR prefix (/0-/32, must be smaller than AddressPool)")
 def create(name, address_pool_name, vpc_name, prefix):
     """Create a new pool within an address pool and VPC (/0-/32)"""
     # Validate prefix
@@ -368,7 +372,8 @@ def create(name, address_pool_name, vpc_name, prefix):
         addr_pool_network = ipaddress.IPv4Network(addr_pool.cidr, strict=False)
         if prefix <= addr_pool_network.prefixlen:
             click.echo(
-                f"❌ Pool prefix ({prefix}) must be smaller than AddressPool ({addr_pool_network.prefixlen})"
+                f"❌ Pool prefix ({prefix}) must be smaller than "
+                f"AddressPool ({addr_pool_network.prefixlen})"
             )
             return
 
@@ -453,9 +458,14 @@ def subnet():
 
 @subnet.command()
 @click.argument("name")
+@click.option(
+    "--prefix",
+    "-p",
+    default=27,
+    help="CIDR prefix (/0-/32, must be smaller than Pool)",
+)
 @click.argument("pool_name")
 @click.argument("vpc_name")
-@click.option("--prefix", "-p", default=27, help="CIDR prefix (/0-/32, must be smaller than Pool)")
 def create(name, pool_name, vpc_name, prefix):
     """Create a new subnet within a pool and VPC (/0-/32)"""
     # Validate prefix
@@ -474,7 +484,8 @@ def create(name, pool_name, vpc_name, prefix):
         pool_network = ipaddress.IPv4Network(pool.cidr, strict=False)
         if prefix <= pool_network.prefixlen:
             click.echo(
-                f"❌ Subnet prefix ({prefix}) must be smaller than Pool ({pool_network.prefixlen})"
+                f"❌ Subnet prefix ({prefix}) must be smaller than "
+                f"Pool ({pool_network.prefixlen})"
             )
             return
 

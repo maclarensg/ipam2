@@ -40,7 +40,8 @@ jobs:
           python-version: '3.14'
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install --only-binary=:all: -r requirements.txt
 
       - name: Run tests
         run: |
@@ -92,8 +93,8 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller
+          pip install --only-binary=:all: -r requirements.txt
+          pip install --only-binary=:all: pyinstaller
           echo "=== PyInstaller version ==="
           pyinstaller --version
 

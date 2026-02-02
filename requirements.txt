@@ -1,5 +1,5 @@
 click==8.1.7
-pyyaml==6.0.1
+pyyaml==6.0.3
 sqlalchemy==2.0.46
 rich==13.7.0
 pandas==2.2.3

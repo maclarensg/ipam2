@@ -8,7 +8,9 @@
 
 import ipaddress
 import os
+import re
 import shutil
+import subprocess
 from datetime import datetime
 from pathlib import Path
 
@@ -677,7 +679,7 @@ def backup():
 def create():
     """Create a timestamped backup"""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    
+
     # Find the actual database file from config
     if hasattr(db, 'config'):
         db_url = db.config.get("sqlite_url") or db.config.get("postgres_url")
@@ -707,16 +709,14 @@ def create():
     if db_url.startswith("postgresql://"):
         backup_file = f"ipam_{timestamp}.dump"
         try:
-            import subprocess
-            import re
             match = re.match(r'postgresql://([^:]+):([^@]+)@([^:]+):?(\d*)/(.+)', db_url)
             if match:
                 user, password, host, port, dbname = match.groups()
                 port = port or '5432'
-                
+
                 env = os.environ.copy()
                 env['PGPASSWORD'] = password
-                
+
                 cmd = [
                     'pg_dump',
                     '-h', host,
@@ -727,7 +727,7 @@ def create():
                     '-Fc',
                     '-v'
                 ]
-                
+
                 result = subprocess.run(cmd, env=env, capture_output=True, text=True)
                 if result.returncode == 0:
                     click.echo(f"✅ Backup: {backup_file} (PostgreSQL custom format)")
@@ -744,12 +744,12 @@ def create():
 @click.argument("backup_file", type=click.Path(exists=True))
 def restore(backup_file):
     """Restore from a backup file
-    
+
     For SQLite: Copies the backup file to replace the current database
     For PostgreSQL: Uses pg_restore with custom format dumps
     """
     backup_path = Path(backup_file)
-    
+
     # Find the actual database file from config
     if hasattr(db, 'config'):
         db_url = db.config.get("sqlite_url") or db.config.get("postgres_url")
@@ -775,13 +775,13 @@ def restore(backup_file):
                 # Close any existing connections
                 if hasattr(db, 'engine') and db.engine:
                     db.engine.dispose()
-                
+
                 # Backup current database first
                 if os.path.exists(db_file):
                     current_backup = f"{db_file}.pre_restore_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
                     shutil.copy(db_file, current_backup)
                     click.echo(f"💾 Current database backed up to: {current_backup}")
-                
+
                 # Restore from backup
                 shutil.copy(backup_path, db_file)
                 click.echo(f"✅ Restored from: {backup_path}")
@@ -794,24 +794,24 @@ def restore(backup_file):
     # PostgreSQL restore
     if db_url.startswith("postgresql://"):
         try:
-            import subprocess
             import re
+            import subprocess
             match = re.match(r'postgresql://([^:]+):([^@]+)@([^:]+):?(\d*)/(.+)', db_url)
             if match:
                 user, password, host, port, dbname = match.groups()
                 port = port or '5432'
-                
+
                 # Check if backup is PostgreSQL custom format
                 result = subprocess.run(
                     ['file', str(backup_path)],
                     capture_output=True, text=True
                 )
-                
+
                 if 'PostgreSQL custom database dump' in result.stdout or str(backup_path).endswith('.dump'):
                     # Set PGPASSWORD and run pg_restore
                     env = os.environ.copy()
                     env['PGPASSWORD'] = password
-                    
+
                     cmd = [
                         'pg_restore',
                         '-h', host,
@@ -821,7 +821,7 @@ def restore(backup_file):
                         '-c',  # Clean (drop objects before recreating)
                         str(backup_path)
                     ]
-                    
+
                     result = subprocess.run(cmd, env=env, capture_output=True, text=True)
                     if result.returncode == 0:
                         click.echo(f"✅ Restored from: {backup_path} (PostgreSQL)")
@@ -833,7 +833,7 @@ def restore(backup_file):
                     # Try as plain SQL
                     env = os.environ.copy()
                     env['PGPASSWORD'] = password
-                    
+
                     cmd = [
                         'psql',
                         '-h', host,
@@ -842,7 +842,7 @@ def restore(backup_file):
                         '-d', dbname,
                         '-f', str(backup_path)
                     ]
-                    
+
                     result = subprocess.run(cmd, env=env, capture_output=True, text=True)
                     if result.returncode == 0:
                         click.echo(f"✅ Restored from: {backup_path} (SQL)")

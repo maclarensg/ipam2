@@ -10,11 +10,11 @@ import ipaddress
 import os
 import re
 import shutil
-import subprocess
 from datetime import datetime
 from pathlib import Path
 
 import click
+import pandas as pd
 import sqlalchemy
 import yaml
 from rich import box
@@ -99,6 +99,14 @@ class IPAMDatabase:
                     # Use relative to config file location
                     config_dir = config_path.parent
                     url = f"sqlite:///{config_dir / db_path}"
+
+        # Store the actual URL in config for backup/restore operations
+        if url.startswith("sqlite:///"):
+            config["sqlite_url"] = url
+        elif url.startswith("postgresql://"):
+            config["postgres_url"] = url
+
+        self.config = config
 
         self.engine = sqlalchemy.create_engine(url)
         Base.metadata.create_all(self.engine)
@@ -677,10 +685,11 @@ def backup():
 
 @backup.command()
 def create():
-    """Create a timestamped backup"""
+    """Create a timestamped backup (always in SQLite format for portability)"""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_file = f"ipam_{timestamp}.db"
 
-    # Find the actual database file from config
+    # Get current database URL
     if hasattr(db, 'config'):
         db_url = db.config.get("sqlite_url") or db.config.get("postgres_url")
     else:
@@ -697,165 +706,233 @@ def create():
             config = yaml.safe_load(f)["database"]
         db_url = config.get("sqlite_url") or config.get("postgres_url")
 
+    if db_url is None:
+        click.echo("❌ No database URL found in config")
+        return
+
     if db_url.startswith("sqlite:///"):
-        backup_file = f"ipam_{timestamp}.db"
+        # Source is SQLite - copy the database file
         db_file = db_url.replace("sqlite:///", "")
         if db_file and db_file != ":memory:" and os.path.exists(db_file):
-            shutil.copy(db_file, backup_file)
-            click.echo(f"✅ Backup: {backup_file} (SQLite)")
-            return
+            try:
+                # Close existing connections first
+                if hasattr(db, 'engine') and db.engine:
+                    db.engine.dispose()
 
-    # For PostgreSQL, create SQL dump with proper extension
-    if db_url.startswith("postgresql://"):
-        backup_file = f"ipam_{timestamp}.dump"
+                shutil.copy(db_file, backup_file)
+                click.echo(f"✅ Backup: {backup_file} (SQLite)")
+                click.echo(f"   Size: {os.path.getsize(backup_file):,} bytes")
+                return
+            except Exception as e:
+                click.echo(f"❌ SQLite backup failed: {e}")
+                return
+
+    elif db_url.startswith("postgresql://"):
+        # Source is PostgreSQL - export to SQLite
         try:
             match = re.match(r'postgresql://([^:]+):([^@]+)@([^:]+):?(\d*)/(.+)', db_url)
             if match:
                 user, password, host, port, dbname = match.groups()
                 port = port or '5432'
 
-                env = os.environ.copy()
-                env['PGPASSWORD'] = password
+                click.echo("📦 Exporting PostgreSQL data to SQLite...")
 
-                cmd = [
-                    'pg_dump',
-                    '-h', host,
-                    '-p', port,
-                    '-U', user,
-                    '-d', dbname,
-                    '-f', backup_file,
-                    '-Fc',
-                    '-v'
-                ]
+                # Create source engine
+                source_url = f"postgresql://{user}:{password}@{host}:{port}/{dbname}"
+                source_engine = sqlalchemy.create_engine(source_url)
 
-                result = subprocess.run(cmd, env=env, capture_output=True, text=True)
-                if result.returncode == 0:
-                    click.echo(f"✅ Backup: {backup_file} (PostgreSQL custom format)")
-                    return
-                else:
-                    click.echo(f"❌ pg_dump failed: {result.stderr}")
+                # Create target SQLite file
+                target_engine = sqlalchemy.create_engine(f"sqlite:///{backup_file}")
+
+                # Copy all tables
+                for table_name in ['address_pools', 'vpcs', 'pools', 'subnets']:
+                    try:
+                        # Read from PostgreSQL
+                        df = pd.read_sql_table(table_name, source_engine)
+                        # Write to SQLite
+                        df.to_sql(table_name, target_engine, if_exists='replace', index=False)
+                        click.echo(f"   📄 {table_name}: {len(df)} rows")
+                    except Exception as e:
+                        click.echo(f"   ⚠️  {table_name}: {e}")
+
+                source_engine.dispose()
+                target_engine.dispose()
+
+                click.echo(f"✅ Backup: {backup_file} (SQLite from PostgreSQL)")
+                click.echo(f"   Size: {os.path.getsize(backup_file):,} bytes")
+                return
+            else:
+                click.echo("❌ Invalid PostgreSQL URL format")
+                return
+        except ImportError:
+            click.echo("⚠️  pandas required for PostgreSQL backup")
+            click.echo("   Install with: pip install pandas")
+            return
         except Exception as e:
             click.echo(f"⚠️  PostgreSQL backup error: {e}")
+            return
 
     click.echo("⚠️  Backup not supported for this database type")
 
 
 @backup.command()
 @click.argument("backup_file", type=click.Path(exists=True))
-def restore(backup_file):
-    """Restore from a backup file
+@click.option("--target", type=click.Choice(["sqlite", "postgres"]), default=None,
+              help="Target database type (default: same as current config)")
+@click.option("--postgres-url", "-p", default=None,
+              help="PostgreSQL URL (required if target=postgres)")
+def restore(backup_file, target, postgres_url):
+    """Restore from a backup file to SQLite or PostgreSQL
 
-    For SQLite: Copies the backup file to replace the current database
-    For PostgreSQL: Uses pg_restore with custom format dumps
+    Example:
+        ipam2 restore backup.db                    # Restore to current database type
+        ipam2 restore backup.db --target sqlite    # Restore to SQLite
+        ipam2 restore backup.db --target postgres  # Restore to PostgreSQL
     """
     backup_path = Path(backup_file)
 
-    # Find the actual database file from config
-    if hasattr(db, 'config'):
-        db_url = db.config.get("sqlite_url") or db.config.get("postgres_url")
-    else:
-        # Fallback to config file
-        if IPAM2_CONFIG_FILE.exists():
-            config_path = IPAM2_CONFIG_FILE
-        elif LEGACY_CONFIG_FILE.exists():
-            config_path = LEGACY_CONFIG_FILE
-        else:
-            click.echo("❌ No config file found")
+    # Verify backup file
+    if not str(backup_file).endswith('.db'):
+        click.echo("⚠️  Warning: Backup file doesn't have .db extension")
+
+    # Determine target database
+    if target == "postgres":
+        if not postgres_url:
+            click.echo("❌ --postgres-url required when target=postgres")
             return
+        target_url = postgres_url
+        target_type = "PostgreSQL"
+    elif target == "sqlite":
+        # Get SQLite URL from config
+        if hasattr(db, 'config'):
+            sqlite_url = db.config.get("sqlite_url")
+            postgres_url = db.config.get("postgres_url")
+            # If current config is postgres, use default XDG location
+            if postgres_url:
+                sqlite_url = f"sqlite:///{IPAM2_DB_FILE}"
+        else:
+            sqlite_url = f"sqlite:///{IPAM2_DB_FILE}"
+        target_url = sqlite_url
+        target_type = "SQLite"
+    else:
+        # Auto-detect from current config
+        if hasattr(db, 'config'):
+            sqlite_url = db.config.get("sqlite_url")
+            postgres_url = db.config.get("postgres_url")
+            if postgres_url:
+                target_url = postgres_url
+                target_type = "PostgreSQL"
+            else:
+                target_url = sqlite_url
+                target_type = "SQLite"
+        else:
+            # Default to SQLite
+            target_url = f"sqlite:///{IPAM2_DB_FILE}"
+            target_type = "SQLite"
 
-        with open(config_path) as f:
-            config = yaml.safe_load(f)["database"]
-        db_url = config.get("sqlite_url") or config.get("postgres_url")
+    click.echo(f"🔄 Restoring {backup_file} → {target_type}")
 
-    # SQLite restore
-    if db_url.startswith("sqlite:///"):
-        db_file = db_url.replace("sqlite:///", "")
-        if db_file and db_file != ":memory:":
-            try:
-                # Close any existing connections
-                if hasattr(db, 'engine') and db.engine:
-                    db.engine.dispose()
+    try:
+        import pandas as pd
+    except ImportError:
+        click.echo("❌ pandas required for restore")
+        click.echo("   Install with: pip install pandas")
+        return
 
-                # Backup current database first
-                if os.path.exists(db_file):
-                    current_backup = f"{db_file}.pre_restore_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-                    shutil.copy(db_file, current_backup)
-                    click.echo(f"💾 Current database backed up to: {current_backup}")
+    try:
+        # Source is always SQLite backup
+        source_engine = sqlalchemy.create_engine(f"sqlite:///{backup_path}")
 
-                # Restore from backup
-                shutil.copy(backup_path, db_file)
-                click.echo(f"✅ Restored from: {backup_path}")
-                click.echo(f"   Database file: {db_file}")
-                return
-            except Exception as e:
-                click.echo(f"❌ Restore failed: {e}")
-                return
+        if target_type == "SQLite":
+            # Restore to SQLite
+            target_db_file = target_url.replace("sqlite:///", "")
+            if target_db_file and target_db_file != ":memory:":
+                try:
+                    # Close existing connections
+                    if hasattr(db, 'engine') and db.engine:
+                        db.engine.dispose()
 
-    # PostgreSQL restore
-    if db_url.startswith("postgresql://"):
-        try:
-            import re
-            import subprocess
-            match = re.match(r'postgresql://([^:]+):([^@]+)@([^:]+):?(\d*)/(.+)', db_url)
+                    # Backup current database first
+                    if os.path.exists(target_db_file):
+                        current_backup = f"{target_db_file}.pre_restore_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                        shutil.copy(target_db_file, current_backup)
+                        click.echo(f"💾 Current database backed up to: {current_backup}")
+
+                    # Copy backup to target
+                    shutil.copy(backup_path, target_db_file)
+                    click.echo(f"✅ Restored from: {backup_path}")
+                    click.echo(f"   Target: {target_db_file}")
+                    return
+                except Exception as e:
+                    click.echo(f"❌ SQLite restore failed: {e}")
+                    return
+
+        else:
+            # Restore to PostgreSQL
+            match = re.match(r'postgresql://([^:]+):([^@]+)@([^:]+):?(\d*)/(.+)', target_url)
             if match:
                 user, password, host, port, dbname = match.groups()
                 port = port or '5432'
 
-                # Check if backup is PostgreSQL custom format
-                result = subprocess.run(
-                    ['file', str(backup_path)],
-                    capture_output=True, text=True
-                )
+                target_engine = sqlalchemy.create_engine(target_url)
 
-                if 'PostgreSQL custom database dump' in result.stdout or str(backup_path).endswith('.dump'):
-                    # Set PGPASSWORD and run pg_restore
-                    env = os.environ.copy()
-                    env['PGPASSWORD'] = password
+                # Truncate tables with CASCADE to handle foreign key dependencies
+                try:
+                    with target_engine.connect() as conn:
+                        # Truncate in reverse order (subnets first, then pools, etc.)
+                        conn.execute(sqlalchemy.text("TRUNCATE TABLE subnets CASCADE;"))
+                        conn.execute(sqlalchemy.text("TRUNCATE TABLE pools CASCADE;"))
+                        conn.execute(sqlalchemy.text("TRUNCATE TABLE vpcs CASCADE;"))
+                        conn.execute(sqlalchemy.text("TRUNCATE TABLE address_pools CASCADE;"))
+                        conn.commit()
+                        click.echo("   🧹 Cleared existing data")
+                except Exception as e:
+                    click.echo(f"   ⚠️  Truncate error (may not exist): {e}")
 
-                    cmd = [
-                        'pg_restore',
-                        '-h', host,
-                        '-p', port,
-                        '-U', user,
-                        '-d', dbname,
-                        '-c',  # Clean (drop objects before recreating)
-                        str(backup_path)
-                    ]
+                # Copy all tables
+                tables = ['address_pools', 'vpcs', 'pools', 'subnets']
+                for table_name in tables:
+                    try:
+                        # Read from SQLite backup
+                        df = pd.read_sql_table(table_name, source_engine)
+                        # Write to PostgreSQL
+                        df.to_sql(table_name, target_engine, if_exists='append', index=False)
+                        click.echo(f"   📄 {table_name}: {len(df)} rows")
+                    except Exception as e:
+                        click.echo(f"   ⚠️  {table_name}: {e}")
 
-                    result = subprocess.run(cmd, env=env, capture_output=True, text=True)
-                    if result.returncode == 0:
-                        click.echo(f"✅ Restored from: {backup_path} (PostgreSQL)")
-                        return
-                    else:
-                        click.echo(f"❌ pg_restore failed: {result.stderr}")
-                        return
-                else:
-                    # Try as plain SQL
-                    env = os.environ.copy()
-                    env['PGPASSWORD'] = password
+                # Recreate unique constraints manually
+                try:
+                    with target_engine.connect() as conn:
+                        # Pool name uniqueness
+                        conn.execute(sqlalchemy.text("""
+                            CREATE UNIQUE INDEX IF NOT EXISTS uq_pool_name ON pools (name);
+                        """))
+                        # Subnet uniqueness within pool
+                        conn.execute(sqlalchemy.text("""
+                            CREATE UNIQUE INDEX IF NOT EXISTS uq_subnet_pool_name ON subnets (pool_id, name);
+                        """))
+                        conn.commit()
+                        click.echo("   ✅ Unique constraints created")
+                except Exception as e:
+                    click.echo(f"   ⚠️  Constraints: {e}")
 
-                    cmd = [
-                        'psql',
-                        '-h', host,
-                        '-p', port,
-                        '-U', user,
-                        '-d', dbname,
-                        '-f', str(backup_path)
-                    ]
+                target_engine.dispose()
+                source_engine.dispose()
 
-                    result = subprocess.run(cmd, env=env, capture_output=True, text=True)
-                    if result.returncode == 0:
-                        click.echo(f"✅ Restored from: {backup_path} (SQL)")
-                        return
-                    else:
-                        click.echo(f"❌ psql restore failed: {result.stderr}")
-                        return
-        except FileNotFoundError:
-            click.echo("❌ PostgreSQL tools (pg_restore/psql) not found")
-            click.echo("   Install PostgreSQL client tools or restore manually")
-            return
-        except Exception as e:
-            click.echo(f"⚠️  PostgreSQL restore error: {e}")
+                click.echo(f"✅ Restored from: {backup_path}")
+                click.echo(f"   Target: postgresql://{host}:{port}/{dbname}")
+                return
+            else:
+                click.echo("❌ Invalid PostgreSQL URL format")
+                return
+
+    except ImportError:
+        click.echo("❌ pandas required for restore")
+        return
+    except Exception as e:
+        click.echo(f"⚠️  Restore error: {e}")
+        return
 
     click.echo("⚠️  Restore not supported for this database type")
 

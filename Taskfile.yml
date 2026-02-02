@@ -28,7 +28,7 @@ tasks:
   install-dev:
     desc: Install development dependencies
     cmds:
-      - .venv/bin/pip install ruff black mypy
+      - .venv/bin/pip install ruff mypy
 
   # ============ RUN ============
 
@@ -176,7 +176,7 @@ tasks:
   format:
     desc: Format code
     cmds:
-      - .venv/bin/black ipam2.py models.py allocator.py
+      - .venv/bin/ruff format ipam2.py models.py allocator.py
 
   # ============ INFO ============
 

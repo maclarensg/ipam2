@@ -56,12 +56,10 @@ class Pool(Base):
     """Mid-level pool (/22 to /30) - child of AddressPool"""
 
     __tablename__ = "pools"
-    __table_args__ = (
-        UniqueConstraint("address_pool_id", "name", name="uq_pool_address_pool_name"),
-    )
+    __table_args__ = (UniqueConstraint("name", name="uq_pool_name"),)
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String(100), nullable=False)
+    name = Column(String(100), nullable=False, unique=True)
     cidr = Column(String(18), nullable=False)
 
     # Foreign keys

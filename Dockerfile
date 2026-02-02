@@ -9,9 +9,9 @@ LABEL org.opencontainers.image.source="https://github.com/maclarensg/ipam2"
 LABEL org.opencontainers.image.title="ipam2"
 LABEL org.opencontainers.image.description="Enterprise IP Address Management CLI with Hierarchical Allocation"
 
-# Install dependencies
+# Install dependencies - use pre-compiled binaries for faster builds
 COPY requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir -r /tmp/requirements.txt
+RUN pip install --no-cache-dir --only-binary=:all: -r /tmp/requirements.txt
 
 # Copy application
 WORKDIR /app

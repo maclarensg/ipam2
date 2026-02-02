@@ -60,6 +60,7 @@ PyInstaller.__main__.run(
         f"--add-data={CONFIG_FILE}:.",  # Include config
         "--hidden-import=sqlalchemy.dialects.sqlite",
         "--hidden-import=sqlalchemy.dialects.postgresql",
+        "--hidden-import=psycopg2",
         "--hidden-import=rich",
         "--hidden-import=rich.console",
         "--hidden-import=rich.table",
@@ -69,6 +70,7 @@ PyInstaller.__main__.run(
         "--collect-all=sqlalchemy",
         "--collect-all=rich",
         "--collect-all=pandas",
+        "--collect-all=psycopg2",
         "--clean",  # Clean cache
         "--noconfirm",  # Overwrite output dir
     ]

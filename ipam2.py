@@ -876,6 +876,19 @@ def restore(backup_file, target, postgres_url):
 
                 target_engine = sqlalchemy.create_engine(target_url)
 
+                # Truncate tables with CASCADE to handle foreign key dependencies
+                try:
+                    with target_engine.connect() as conn:
+                        # Truncate in reverse order (subnets first, then pools, etc.)
+                        conn.execute(sqlalchemy.text("TRUNCATE TABLE subnets CASCADE;"))
+                        conn.execute(sqlalchemy.text("TRUNCATE TABLE pools CASCADE;"))
+                        conn.execute(sqlalchemy.text("TRUNCATE TABLE vpcs CASCADE;"))
+                        conn.execute(sqlalchemy.text("TRUNCATE TABLE address_pools CASCADE;"))
+                        conn.commit()
+                        click.echo("   🧹 Cleared existing data")
+                except Exception as e:
+                    click.echo(f"   ⚠️  Truncate error (may not exist): {e}")
+
                 # Copy all tables
                 tables = ['address_pools', 'vpcs', 'pools', 'subnets']
                 for table_name in tables:
@@ -883,7 +896,7 @@ def restore(backup_file, target, postgres_url):
                         # Read from SQLite backup
                         df = pd.read_sql_table(table_name, source_engine)
                         # Write to PostgreSQL
-                        df.to_sql(table_name, target_engine, if_exists='replace', index=False)
+                        df.to_sql(table_name, target_engine, if_exists='append', index=False)
                         click.echo(f"   📄 {table_name}: {len(df)} rows")
                     except Exception as e:
                         click.echo(f"   ⚠️  {table_name}: {e}")

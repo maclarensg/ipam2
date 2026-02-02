@@ -28,7 +28,7 @@ tasks:
   install-dev:
     desc: Install development dependencies
     cmds:
-      - .venv/bin/pip install ruff black mypy
+      - .venv/bin/pip install ruff mypy
 
   # ============ RUN ============
 
@@ -69,10 +69,15 @@ tasks:
   # ============ BUILD ============
 
   build:
-    desc: Build standalone executable
+    desc: Build standalone executable [VERSION=x.y.z]
     cmds:
       - rm -rf {{.DIST_DIR}} {{.BUILD_DIR}}
-      - .venv/bin/pyinstaller build.py
+      - |
+        if [ -z "{{.VERSION}}" ]; then
+          .venv/bin/pyinstaller build.py
+        else
+          .venv/bin/pyinstaller build.py --version {{.VERSION}}
+        fi
 
   build-clean:
     desc: Clean build artifacts
@@ -121,14 +126,16 @@ tasks:
   # ============ RELEASE ============
 
   release:
-    desc: Build binary and Docker for release
+    desc: Build binary and Docker for release (TAG=v1.0.0)
     cmds:
       - |
         if [ -z "$TAG" ]; then
           echo "TAG not set. Use: task release TAG=v2.0.0"
           exit 1
         fi
-        task build
+        # Extract version from tag (remove 'v' prefix)
+        VERSION=${TAG#v}
+        task build VERSION=$VERSION
         task docker-release TAG=$TAG
 
   # ============ CLEANUP ============
@@ -169,7 +176,7 @@ tasks:
   format:
     desc: Format code
     cmds:
-      - .venv/bin/black ipam2.py models.py allocator.py
+      - .venv/bin/ruff format ipam2.py models.py allocator.py
 
   # ============ INFO ============
 

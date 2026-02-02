@@ -7,8 +7,10 @@
 """
 
 import ipaddress
+import os
 import shutil
 from datetime import datetime
+from pathlib import Path
 
 import click
 import sqlalchemy
@@ -26,14 +28,62 @@ from models import AddressPool, Base, Pool, Subnet, Vpc
 console = Console()
 db = None
 
+# Default config location for standalone binary
+XDG_CONFIG_HOME = os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
+IPAM2_CONFIG_DIR = Path(XDG_CONFIG_HOME) / "ipam2"
+IPAM2_CONFIG_FILE = IPAM2_CONFIG_DIR / "config.yaml"
+IPAM2_DB_FILE = IPAM2_CONFIG_DIR / "ipam.db"
+
+# Legacy config location (current directory)
+LEGACY_CONFIG_FILE = Path("config.yaml")
+
 
 class IPAMDatabase:
-    def __init__(self, config_file="config.yaml"):
-        with open(config_file) as f:
+    def __init__(self, config_file=None):
+        """
+        Initialize database with config file support.
+        Priority:
+        1. Custom config_file parameter
+        2. XDG config: ~/.config/ipam2/config.yaml (created if missing)
+        3. Legacy: ./config.yaml in current directory
+        """
+        # Determine config file location
+        if config_file:
+            config_path = Path(config_file)
+        elif IPAM2_CONFIG_FILE.exists():
+            config_path = IPAM2_CONFIG_FILE
+        elif LEGACY_CONFIG_FILE.exists():
+            config_path = LEGACY_CONFIG_FILE
+        else:
+            # Create XDG config directory and default config
+            IPAM2_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+            self._create_default_config()
+            config_path = IPAM2_CONFIG_FILE
+
+        # Load config
+        with open(config_path) as f:
             config = yaml.safe_load(f)["database"]
 
         self.config = config
+        self.config_file = str(config_path)
+
+        # Determine database URL
         url = config.get("sqlite_url") or config.get("postgres_url")
+
+        # If using SQLite, use XDG location for standalone binary
+        if url.startswith("sqlite:///"):
+            db_path = url.replace("sqlite:///", "")
+            # Use XDG location if not absolute path
+            if not db_path.startswith("/"):
+                # Create config directory for database if using default name
+                if db_path == "ipam.db":
+                    IPAM2_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+                    url = f"sqlite:///{IPAM2_DB_FILE}"
+                else:
+                    # Use relative to config file location
+                    config_dir = config_path.parent
+                    url = f"sqlite:///{config_dir / db_path}"
+
         self.engine = sqlalchemy.create_engine(url)
         Base.metadata.create_all(self.engine)
         self.Session = sessionmaker(bind=self.engine)
@@ -41,6 +91,18 @@ class IPAMDatabase:
         # Caches: keyed by name
         self._addr_pool_allocators = {}  # AddressPool name -> AddressPoolAllocator
         self._pool_allocators = {}  # Pool name -> PoolAllocator
+
+    def _create_default_config(self):
+        """Create default config file in XDG location"""
+        default_config = {
+            "database": {
+                "driver": "sqlite",
+                "sqlite_url": f"sqlite:///{IPAM2_DB_FILE}",
+                # "postgres_url": "postgresql://user:password@localhost:5432/ipam"
+            }
+        }
+        with open(IPAM2_CONFIG_FILE, "w") as f:
+            yaml.dump(default_config, f, default_flow_style=False)
 
     def session(self):
         return self.Session()
@@ -127,7 +189,7 @@ def cli():
     """🏢 Enterprise IPAM CLI v2.0
 
     Name-based IDs | Hierarchical | No Overlaps
-    AddressPool (/8-/16) → Pool (/22-/30) → Subnet (/24-/32)
+    AddressPool → Pool (smaller) → Subnet (smaller)
     """
 
 
@@ -149,7 +211,7 @@ def quickstart():
 
 @cli.group()
 def addresspool():
-    """🏛️ Address Pools (/8-/16) - Top-level supernets"""
+    """🏛️ Address Pools (/0-/32) - Top-level supernets"""
     pass
 
 
@@ -157,12 +219,12 @@ def addresspool():
 @click.argument("name")
 @click.argument("cidr")
 def create(name, cidr):
-    """Create a new address pool"""
+    """Create a new address pool (/0-/32)"""
     # Validate CIDR
     try:
         network = ipaddress.IPv4Network(cidr, strict=False)
-        if network.prefixlen > 16:
-            click.echo("❌ CIDR prefix must be /16 or smaller (e.g., /8, /12, /16)")
+        if network.prefixlen > 32:
+            click.echo("❌ CIDR prefix must be /32 or smaller")
             return
     except ValueError as e:
         click.echo(f"❌ Invalid CIDR: {e}")
@@ -279,20 +341,25 @@ def delete(name):
 
 @cli.group()
 def pool():
-    """📦 Pools (/22-/30) - Children of AddressPool"""
+    """📦 Pools (/0-/32) - Children of AddressPool (must be smaller)"""
     pass
 
 
 @pool.command()
 @click.argument("name")
+@click.option(
+    "--prefix",
+    "-p",
+    default=24,
+    help="CIDR prefix (/0-/32, must be smaller than AddressPool)",
+)
 @click.argument("address_pool_name")
 @click.argument("vpc_name")
-@click.option("--prefix", "-p", default=24, help="CIDR prefix (/22-/30)")
 def create(name, address_pool_name, vpc_name, prefix):
-    """Create a new pool within an address pool and VPC"""
+    """Create a new pool within an address pool and VPC (/0-/32)"""
     # Validate prefix
-    if prefix < 22 or prefix > 30:
-        click.echo("❌ Pool prefix must be /22-/30")
+    if prefix < 0 or prefix > 32:
+        click.echo("❌ Pool prefix must be /0-/32")
         return
 
     with db.session() as session:
@@ -300,6 +367,15 @@ def create(name, address_pool_name, vpc_name, prefix):
         addr_pool = session.query(AddressPool).filter_by(name=address_pool_name).first()
         if not addr_pool:
             click.echo(f"❌ AddressPool '{address_pool_name}' not found")
+            return
+
+        # Validate pool is smaller than address pool
+        addr_pool_network = ipaddress.IPv4Network(addr_pool.cidr, strict=False)
+        if prefix <= addr_pool_network.prefixlen:
+            click.echo(
+                f"❌ Pool prefix ({prefix}) must be smaller than "
+                f"AddressPool ({addr_pool_network.prefixlen})"
+            )
             return
 
         # Check if VPC exists
@@ -377,20 +453,25 @@ def delete(name):
 
 @cli.group()
 def subnet():
-    """🔢 Subnets (/24-/32) - Children of Pool"""
+    """🔢 Subnets (/0-/32) - Children of Pool (must be smaller)"""
     pass
 
 
 @subnet.command()
 @click.argument("name")
+@click.option(
+    "--prefix",
+    "-p",
+    default=27,
+    help="CIDR prefix (/0-/32, must be smaller than Pool)",
+)
 @click.argument("pool_name")
 @click.argument("vpc_name")
-@click.option("--prefix", "-p", default=27, help="CIDR prefix (/24-/32)")
 def create(name, pool_name, vpc_name, prefix):
-    """Create a new subnet within a pool and VPC"""
+    """Create a new subnet within a pool and VPC (/0-/32)"""
     # Validate prefix
-    if prefix < 24 or prefix > 32:
-        click.echo("❌ Subnet prefix must be /24-/32")
+    if prefix < 0 or prefix > 32:
+        click.echo("❌ Subnet prefix must be /0-/32")
         return
 
     with db.session() as session:
@@ -398,6 +479,15 @@ def create(name, pool_name, vpc_name, prefix):
         pool = session.query(Pool).filter_by(name=pool_name).first()
         if not pool:
             click.echo(f"❌ Pool '{pool_name}' not found")
+            return
+
+        # Validate subnet is smaller than pool
+        pool_network = ipaddress.IPv4Network(pool.cidr, strict=False)
+        if prefix <= pool_network.prefixlen:
+            click.echo(
+                f"❌ Subnet prefix ({prefix}) must be smaller than "
+                f"Pool ({pool_network.prefixlen})"
+            )
             return
 
         # Check if VPC exists
@@ -567,14 +657,26 @@ def create():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_file = f"ipam_{timestamp}.db"
 
-    # Find the actual database file
-    with open("config.yaml") as f:
-        config = yaml.safe_load(f)["database"]
-    db_url = config.get("sqlite_url") or config.get("postgres_url")
+    # Find the actual database file from config
+    if hasattr(db, 'config'):
+        db_url = db.config.get("sqlite_url") or db.config.get("postgres_url")
+    else:
+        # Fallback to config file
+        if IPAM2_CONFIG_FILE.exists():
+            config_path = IPAM2_CONFIG_FILE
+        elif LEGACY_CONFIG_FILE.exists():
+            config_path = LEGACY_CONFIG_FILE
+        else:
+            click.echo("❌ No config file found")
+            return
+
+        with open(config_path) as f:
+            config = yaml.safe_load(f)["database"]
+        db_url = config.get("sqlite_url") or config.get("postgres_url")
 
     if db_url.startswith("sqlite:///"):
         db_file = db_url.replace("sqlite:///", "")
-        if db_file and db_file != ":memory:":
+        if db_file and db_file != ":memory:" and os.path.exists(db_file):
             shutil.copy(db_file, backup_file)
             click.echo(f"✅ Backup: {backup_file}")
             return

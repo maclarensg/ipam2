@@ -346,6 +346,7 @@ def pool():
 
 
 @pool.command()
+@click.argument("name")
 @click.option(
     "--prefix",
     "-p",

@@ -65,8 +65,10 @@ PyInstaller.__main__.run(
         "--hidden-import=rich.table",
         "--hidden-import=rich.panel",
         "--hidden-import=rich.box",
+        "--hidden-import=pandas",
         "--collect-all=sqlalchemy",
         "--collect-all=rich",
+        "--collect-all=pandas",
         "--clean",  # Clean cache
         "--noconfirm",  # Overwrite output dir
     ]

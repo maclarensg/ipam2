@@ -100,6 +100,14 @@ class IPAMDatabase:
                     config_dir = config_path.parent
                     url = f"sqlite:///{config_dir / db_path}"
 
+        # Store the actual URL in config for backup/restore operations
+        if url.startswith("sqlite:///"):
+            config["sqlite_url"] = url
+        elif url.startswith("postgresql://"):
+            config["postgres_url"] = url
+
+        self.config = config
+
         self.engine = sqlalchemy.create_engine(url)
         Base.metadata.create_all(self.engine)
         self.Session = sessionmaker(bind=self.engine)
@@ -697,6 +705,10 @@ def create():
         with open(config_path) as f:
             config = yaml.safe_load(f)["database"]
         db_url = config.get("sqlite_url") or config.get("postgres_url")
+
+    if db_url is None:
+        click.echo("❌ No database URL found in config")
+        return
 
     if db_url.startswith("sqlite:///"):
         # Source is SQLite - copy the database file

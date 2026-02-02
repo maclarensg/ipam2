@@ -27,6 +27,20 @@ from models import AddressPool, Base, Pool, Subnet, Vpc
 
 console = Console()
 db = None
+_config_file = None
+
+# XDG Config location for defaults
+XDG_CONFIG_HOME = os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
+IPAM2_CONFIG_FILE = Path(XDG_CONFIG_HOME) / "ipam2" / "config.yaml"
+
+# Default config location for standalone binary
+XDG_CONFIG_HOME = os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
+IPAM2_CONFIG_DIR = Path(XDG_CONFIG_HOME) / "ipam2"
+IPAM2_CONFIG_FILE = IPAM2_CONFIG_DIR / "config.yaml"
+IPAM2_DB_FILE = IPAM2_CONFIG_DIR / "ipam.db"
+
+# Legacy config location (current directory)
+LEGACY_CONFIG_FILE = Path("config.yaml")
 
 # Default config location for standalone binary
 XDG_CONFIG_HOME = os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
@@ -180,17 +194,25 @@ class IPAMDatabase:
         return allocator.is_available(cidr)
 
 
-db = IPAMDatabase()
-
-
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
 @click.version_option("2.0", "--version", "-v")
-def cli():
+@click.option(
+    "--config",
+    "-c",
+    "config_file",
+    type=click.Path(exists=True),
+    help="Path to config.yaml file",
+)
+def cli(config_file):
     """🏢 Enterprise IPAM CLI v2.0
 
     Name-based IDs | Hierarchical | No Overlaps
     AddressPool → Pool (smaller) → Subnet (smaller)
     """
+    global db, _config_file
+    _config_file = config_file
+    if db is None:
+        db = IPAMDatabase(config_file=config_file)
 
 
 @cli.command()

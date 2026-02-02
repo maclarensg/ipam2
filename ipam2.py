@@ -703,8 +703,163 @@ def create():
             click.echo(f"✅ Backup: {backup_file}")
             return
 
-    # For other databases or memory, skip backup
+    # For PostgreSQL, create SQL dump
+    if db_url.startswith("postgresql://"):
+        try:
+            import subprocess
+            # Extract connection params from URL
+            # postgresql://user:password@host:port/dbname
+            import re
+            match = re.match(r'postgresql://([^:]+):([^@]+)@([^:]+):?(\d*)/(.+)', db_url)
+            if match:
+                user, password, host, port, dbname = match.groups()
+                port = port or '5432'
+                
+                # Set PGPASSWORD and run pg_dump
+                env = os.environ.copy()
+                env['PGPASSWORD'] = password
+                
+                cmd = [
+                    'pg_dump',
+                    '-h', host,
+                    '-p', port,
+                    '-U', user,
+                    '-d', dbname,
+                    '-f', backup_file,
+                    '-Fc',  # Custom format for compression
+                    '-v'    # Verbose
+                ]
+                
+                result = subprocess.run(cmd, env=env, capture_output=True, text=True)
+                if result.returncode == 0:
+                    click.echo(f"✅ Backup: {backup_file} (PostgreSQL custom format)")
+                    return
+                else:
+                    click.echo(f"❌ pg_dump failed: {result.stderr}")
+        except Exception as e:
+            click.echo(f"⚠️  PostgreSQL backup error: {e}")
+
     click.echo("⚠️  Backup not supported for this database type")
+
+
+@backup.command()
+@click.argument("backup_file", type=click.Path(exists=True))
+def restore(backup_file):
+    """Restore from a backup file
+    
+    For SQLite: Copies the backup file to replace the current database
+    For PostgreSQL: Uses pg_restore with custom format dumps
+    """
+    backup_path = Path(backup_file)
+    
+    # Find the actual database file from config
+    if hasattr(db, 'config'):
+        db_url = db.config.get("sqlite_url") or db.config.get("postgres_url")
+    else:
+        # Fallback to config file
+        if IPAM2_CONFIG_FILE.exists():
+            config_path = IPAM2_CONFIG_FILE
+        elif LEGACY_CONFIG_FILE.exists():
+            config_path = LEGACY_CONFIG_FILE
+        else:
+            click.echo("❌ No config file found")
+            return
+
+        with open(config_path) as f:
+            config = yaml.safe_load(f)["database"]
+        db_url = config.get("sqlite_url") or config.get("postgres_url")
+
+    # SQLite restore
+    if db_url.startswith("sqlite:///"):
+        db_file = db_url.replace("sqlite:///", "")
+        if db_file and db_file != ":memory:":
+            try:
+                # Close any existing connections
+                if hasattr(db, 'engine') and db.engine:
+                    db.engine.dispose()
+                
+                # Backup current database first
+                if os.path.exists(db_file):
+                    current_backup = f"{db_file}.pre_restore_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                    shutil.copy(db_file, current_backup)
+                    click.echo(f"💾 Current database backed up to: {current_backup}")
+                
+                # Restore from backup
+                shutil.copy(backup_path, db_file)
+                click.echo(f"✅ Restored from: {backup_path}")
+                click.echo(f"   Database file: {db_file}")
+                return
+            except Exception as e:
+                click.echo(f"❌ Restore failed: {e}")
+                return
+
+    # PostgreSQL restore
+    if db_url.startswith("postgresql://"):
+        try:
+            import subprocess
+            import re
+            match = re.match(r'postgresql://([^:]+):([^@]+)@([^:]+):?(\d*)/(.+)', db_url)
+            if match:
+                user, password, host, port, dbname = match.groups()
+                port = port or '5432'
+                
+                # Check if backup is PostgreSQL custom format
+                result = subprocess.run(
+                    ['file', str(backup_path)],
+                    capture_output=True, text=True
+                )
+                
+                if 'PostgreSQL custom database dump' in result.stdout or str(backup_path).endswith('.dump'):
+                    # Set PGPASSWORD and run pg_restore
+                    env = os.environ.copy()
+                    env['PGPASSWORD'] = password
+                    
+                    cmd = [
+                        'pg_restore',
+                        '-h', host,
+                        '-p', port,
+                        '-U', user,
+                        '-d', dbname,
+                        '-c',  # Clean (drop objects before recreating)
+                        str(backup_path)
+                    ]
+                    
+                    result = subprocess.run(cmd, env=env, capture_output=True, text=True)
+                    if result.returncode == 0:
+                        click.echo(f"✅ Restored from: {backup_path} (PostgreSQL)")
+                        return
+                    else:
+                        click.echo(f"❌ pg_restore failed: {result.stderr}")
+                        return
+                else:
+                    # Try as plain SQL
+                    env = os.environ.copy()
+                    env['PGPASSWORD'] = password
+                    
+                    cmd = [
+                        'psql',
+                        '-h', host,
+                        '-p', port,
+                        '-U', user,
+                        '-d', dbname,
+                        '-f', str(backup_path)
+                    ]
+                    
+                    result = subprocess.run(cmd, env=env, capture_output=True, text=True)
+                    if result.returncode == 0:
+                        click.echo(f"✅ Restored from: {backup_path} (SQL)")
+                        return
+                    else:
+                        click.echo(f"❌ psql restore failed: {result.stderr}")
+                        return
+        except FileNotFoundError:
+            click.echo("❌ PostgreSQL tools (pg_restore/psql) not found")
+            click.echo("   Install PostgreSQL client tools or restore manually")
+            return
+        except Exception as e:
+            click.echo(f"⚠️  PostgreSQL restore error: {e}")
+
+    click.echo("⚠️  Restore not supported for this database type")
 
 
 if __name__ == "__main__":
